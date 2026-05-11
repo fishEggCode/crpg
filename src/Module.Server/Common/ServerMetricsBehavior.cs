@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using TaleWorlds.MountAndBlade;
@@ -34,20 +34,6 @@ internal class ServerMetricsBehavior : MissionBehavior
     public override void OnRemoveBehavior()
     {
         _socket?.Dispose();
-    }
-
-    public override void OnMissionTick(float dt)
-    {
-        if (_updateTimer == null || !_updateTimer.Check(reset: true))
-        {
-            return;
-        }
-
-        int players = GameNetwork.NetworkPeers.Count(x => x.IsSynchronized);
-
-        // https://docs.datadoghq.com/developers/dogstatsd/datagram_shell?tab=metrics
-        string datagramStr = $"crpg.users.playing.count:{players}|g|#{BuildTags()}";
-        SendDatagram(datagramStr);
     }
 
     private string BuildTags()

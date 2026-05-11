@@ -73,11 +73,14 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
 
     private bool HandleTeamChange(NetworkCommunicator peer, TeamChange message)
     {
-        if (IsNativeBalancerEnabled())
+        if (ShouldBypassCrpgBalancer())
         {
             if (message.AutoAssign)
             {
-                AutoAssignTeam(peer);
+                // FreeTeamSelect: the client-side team selection VM currently sends Attacker for both
+                // banner buttons, so route the "auto assign" (dice) button to Defender to give players
+                // a real two-way choice (banner = Attacker, dice = Defender) without changing the client.
+                ChangeTeamServer(peer, Mission.DefenderTeam);
             }
             else
             {
@@ -150,7 +153,7 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
 
     private void BalanceTeams(bool firstBalance)
     {
-        if (IsNativeBalancerEnabled())
+        if (ShouldBypassCrpgBalancer())
         {
             return;
         }
@@ -391,6 +394,16 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
     {
         int autoTeamBalanceThreshold = MultiplayerOptions.OptionType.AutoTeamBalanceThreshold.GetIntValue();
         return autoTeamBalanceThreshold != 0;
+    }
+
+    private bool IsFreeTeamSelectEnabled()
+    {
+        return CrpgServerConfiguration.FreeTeamSelect;
+    }
+
+    private bool ShouldBypassCrpgBalancer()
+    {
+        return IsNativeBalancerEnabled() || IsFreeTeamSelectEnabled();
     }
 
     private void LogRoundResult()

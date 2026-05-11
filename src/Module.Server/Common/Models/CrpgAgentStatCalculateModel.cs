@@ -1,4 +1,4 @@
-﻿using Crpg.Module.Helpers;
+using Crpg.Module.Helpers;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
@@ -676,7 +676,7 @@ internal class CrpgAgentStatCalculateModel : AgentStatCalculateModel
 
     private int MaxWeaponLengthForStrLevel(int strengthSkill)
     {
-        int uncappedMaxWeaponLength = (int)(22 + (strengthSkill - 3) * 7.5 + Math.Pow(Math.Min(strengthSkill - 3, 24) * 0.115f, 7.75f));
+        int uncappedMaxWeaponLength = (int)(22 + (strengthSkill - 3) * 11.62 + Math.Pow(Math.Min(strengthSkill - 3, 24) * 0.083f, 8f));
         return Math.Min(uncappedMaxWeaponLength, 650);
     }
 

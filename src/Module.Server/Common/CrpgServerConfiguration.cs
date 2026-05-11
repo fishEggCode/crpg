@@ -33,6 +33,7 @@ internal static class CrpgServerConfiguration
     public static int RewardTick { get; private set; } = 60;
     public static bool TeamBalanceOnce { get; private set; }
     public static bool DisableClanBalancing { get; private set; }
+    public static bool FreeTeamSelect { get; private set; }
     public static bool FrozenBots { get; private set; } = false;
     public static int ControlledBotsCount { get; private set; } = 0;
     public static Tuple<TimeSpan, TimeSpan, TimeZoneInfo>? HappyHours { get; private set; }
@@ -216,6 +217,22 @@ internal static class CrpgServerConfiguration
 
         DisableClanBalancing = disableClanBalancing;
         Debug.Print($"Set disable clan balancing to {disableClanBalancing}");
+    }
+
+    [UsedImplicitly]
+    [ConsoleCommandMethod("crpg_free_team_select", "Allow players to freely pick their team. Disables cRPG round-end / warmup-end balancing.")]
+    private static void SetFreeTeamSelect(string? inputStr)
+    {
+        if (inputStr == null
+            || !bool.TryParse(inputStr, out bool freeTeamSelect))
+        {
+            Debug.Print($"Invalid free team select: {inputStr}");
+            Debug.Print($"Current value: crpg_free_team_select {FreeTeamSelect}");
+            return;
+        }
+
+        FreeTeamSelect = freeTeamSelect;
+        Debug.Print($"Set free team select to {freeTeamSelect}");
     }
 
     [UsedImplicitly]

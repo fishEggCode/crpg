@@ -589,7 +589,7 @@ export const computeSpeedStats = ({
     1.5,
   )
   const maxWeaponLength = Math.min(
-    22 + (strength - 3) * 7.5 + (Math.min(strength - 3, 24) * 0.115) ** 7.75,
+    22 + (strength - 3) * 11.62 + (Math.min(strength - 3, 24) * 0.083) ** 8,
     650,
   )
   const timeToMaxSpeedWeaponLenghthTerm = Math.max(
@@ -653,7 +653,7 @@ export function computeWeaponLengthMountPenalty(
     return 1 // No penalty
   }
 
-  const maxLength = 22 + (strength - 3) * 7.5 + (Math.min(strength - 3, 24) * 0.115) ** 7.75
+  const maxLength = 22 + (strength - 3) * 11.62 + (Math.min(strength - 3, 24) * 0.083) ** 8
   const ratio = Math.min(maxLength / weaponLength, 1)
   const penaltyFactor = 0.8 + 0.2 * ratio
   return penaltyFactor // 1 = no penalty, <1 = reduction

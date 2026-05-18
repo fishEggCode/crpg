@@ -589,11 +589,11 @@ internal class CrpgRewardServer : MissionLogic
         return true;
     }
 
-    /// <summary>Valorous players are the top X% of the round of the defeated team.</summary>
+    /// <summary>Valorous players are the top X% of the round of the defeated team plus infantry from the next X%.</summary>
     private HashSet<PlayerId> GetValorousPlayers(NetworkCommunicator[] networkPeers,
         Dictionary<PlayerId, PeriodStats> allPeriodStats, BattleSideEnum valourTeamSide)
     {
-        var defeatedTeamPlayersWithRoundScore = new List<(PlayerId playerId, int score)>();
+        var defeatedTeamPlayersWithRoundScore = new List<(PlayerId playerId, int score, CrpgCharacterClass? characterClass)>();
         foreach (var networkPeer in networkPeers)
         {
             var missionPeer = networkPeer.GetComponent<MissionPeer>();
@@ -607,19 +607,30 @@ internal class CrpgRewardServer : MissionLogic
             {
                 var playerId = networkPeer.VirtualPlayer.Id;
                 int roundScore = allPeriodStats.TryGetValue(playerId, out var s) ? s.Score : 0;
-                defeatedTeamPlayersWithRoundScore.Add((playerId, roundScore));
+                defeatedTeamPlayersWithRoundScore.Add((playerId, roundScore, crpgPeer.User?.Character.Class));
             }
         }
 
-        int numberOfPlayersToGiveValour = defeatedTeamPlayersWithRoundScore.Count is >= 2 and <= 5
+        int numberOfTopPlayersToGiveValour = defeatedTeamPlayersWithRoundScore.Count is >= 2 and <= 5
             ? 1
             : (int)(0.2f * defeatedTeamPlayersWithRoundScore.Count);
-        Debug.Print($"Giving valour to {numberOfPlayersToGiveValour} out of the {defeatedTeamPlayersWithRoundScore.Count} players in the defeated team");
-        return defeatedTeamPlayersWithRoundScore
+        int numberOfInfantryPlayersToConsider = numberOfTopPlayersToGiveValour;
+        var orderedDefeatedTeamPlayers = defeatedTeamPlayersWithRoundScore
             .OrderByDescending(p => p.score)
-            .Take(numberOfPlayersToGiveValour)
+            .ToList();
+        HashSet<PlayerId> valorousPlayers = orderedDefeatedTeamPlayers
+            .Take(numberOfTopPlayersToGiveValour)
             .Select(p => p.playerId)
             .ToHashSet();
+        valorousPlayers.UnionWith(orderedDefeatedTeamPlayers
+            .Skip(numberOfTopPlayersToGiveValour)
+            .Take(numberOfInfantryPlayersToConsider)
+            .Where(p => p.characterClass is CrpgCharacterClass.Infantry
+                or CrpgCharacterClass.ShockInfantry
+                or CrpgCharacterClass.Skirmisher)
+            .Select(p => p.playerId));
+        Debug.Print($"Giving valour to {valorousPlayers.Count} out of the {defeatedTeamPlayersWithRoundScore.Count} players in the defeated team");
+        return valorousPlayers;
     }
 
     private CrpgCharacterRating GetNewRating(CrpgPeer crpgPeer)

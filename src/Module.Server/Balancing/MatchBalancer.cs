@@ -41,7 +41,7 @@ internal class MatchBalancer
         return returnedGameMatch;
     }
 
-    public GameMatch BannerBalancingWithEdgeCases(GameMatch gameMatch, bool firstBalance = true, bool balanceOnce = true)
+    public GameMatch BannerBalancingWithEdgeCases(GameMatch gameMatch, bool firstBalance = true, bool balanceOnce = true, bool forceReshuffle = false)
     {
         MatchBalancingHelpers.DumpTeamsStatus(gameMatch);
         Debug.Print(nameof(BannerBalancingWithEdgeCases));
@@ -57,8 +57,11 @@ internal class MatchBalancer
 
         if (_disableClanBalancing)
         {
-            Debug.Print("Clan-aware balancing disabled, falling back to weight-only balancing");
-            balancedBannerGameMatch = ClanUnawareBalancing(gameMatch, firstBalance, balanceOnce);
+            Debug.Print(forceReshuffle
+                ? "Clan-aware balancing disabled, forcing a full reshuffle (losing-streak triggered)"
+                : "Clan-aware balancing disabled, falling back to weight-only balancing");
+            // forceReshuffle reuses the first-round path which performs a full draft (NaiveCaptainBalancingWithCavalrySplit).
+            balancedBannerGameMatch = ClanUnawareBalancing(gameMatch, firstBalance || forceReshuffle, balanceOnce);
             MatchBalancingHelpers.DumpTeamsStatus(balancedBannerGameMatch);
             return balancedBannerGameMatch;
         }
@@ -145,12 +148,14 @@ internal class MatchBalancer
         if (firstBalance)
         {
             Debug.Print("This is the first Round (clan balancing disabled)");
-            balanced = NaiveCaptainBalancing(gameMatch);
+            balanced = NaiveCaptainBalancingWithCavalrySplit(gameMatch);
         }
         else if (balanceOnce && IsBalanceGoodEnough(gameMatch, maxSizeRatio: 0.7f, maxDifference: 15f, percentageDifference: 0.20f))
         {
             Debug.Print("This is not the first Round, balance is still good (clan balancing disabled)");
-            return RandomlyAssignWaitingPlayersTeam(gameMatch);
+            balanced = RandomlyAssignWaitingPlayersTeam(gameMatch);
+            // Even when overall balance is acceptable, still ensure cavalry counts are split evenly.
+            return BalanceCavalryDistribution(balanced);
         }
         else
         {
@@ -162,12 +167,148 @@ internal class MatchBalancer
         if (IsBalanceGoodEnough(balanced, maxSizeRatio: 0.85f, maxDifference: 10f, percentageDifference: 0.10f))
         {
             Debug.Print("Balance is good enough without further swaps");
-            return balanced;
+            return BalanceCavalryDistribution(balanced);
         }
 
         Debug.Print("Swapping individual users to fix balance (clan balancing disabled)");
         balanced = BalanceTeamOfSimilarSizes(balanced, bannerBalance: false, 0.10f);
-        return balanced;
+        // Run after the weight-balance pass so that cavalry counts are equalized last.
+        return BalanceCavalryDistribution(balanced);
+    }
+
+    /// <summary>
+    /// Cavalry-aware variant of <see cref="NaiveCaptainBalancing"/>. Splits the player pool into cavalry and
+    /// non-cavalry, then drafts each pool independently to the team with the lower current weight. This
+    /// guarantees both teams end up with an equal cavalry count (±1) while keeping the total weight close.
+    /// </summary>
+    private GameMatch NaiveCaptainBalancingWithCavalrySplit(GameMatch gameMatch)
+    {
+        List<WeightedCrpgUser> allWeightedCrpgUsers = new();
+        allWeightedCrpgUsers.AddRange(gameMatch.TeamA);
+        allWeightedCrpgUsers.AddRange(gameMatch.TeamB);
+        allWeightedCrpgUsers.AddRange(gameMatch.Waiting);
+
+        GameMatch returnedGameMatch = new();
+
+        DraftPoolIntoTeams(allWeightedCrpgUsers.Where(u => u.IsCavalry), returnedGameMatch);
+        DraftPoolIntoTeams(allWeightedCrpgUsers.Where(u => !u.IsCavalry), returnedGameMatch);
+
+        return returnedGameMatch;
+    }
+
+    private static void DraftPoolIntoTeams(IEnumerable<WeightedCrpgUser> pool, GameMatch target)
+    {
+        float teamAWeight = target.TeamA.Sum(u => u.Weight);
+        float teamBWeight = target.TeamB.Sum(u => u.Weight);
+
+        foreach (var user in pool.OrderByDescending(u => u.Weight))
+        {
+            int countDiff = target.TeamA.Count - target.TeamB.Count;
+            bool addToA;
+            // Keep team sizes within 1 of each other; otherwise favor the team with the lower running weight.
+            if (countDiff <= -1)
+            {
+                addToA = true;
+            }
+            else if (countDiff >= 1)
+            {
+                addToA = false;
+            }
+            else
+            {
+                addToA = teamAWeight <= teamBWeight;
+            }
+
+            if (addToA)
+            {
+                target.TeamA.Add(user);
+                teamAWeight += user.Weight;
+            }
+            else
+            {
+                target.TeamB.Add(user);
+                teamBWeight += user.Weight;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Equalizes the number of cavalry players between the two teams by swapping a cavalry player with a
+    /// non-cavalry player from the opposite team. Among all candidate swaps, the one that keeps the total
+    /// team weights closest is selected, so combat power stays balanced as much as possible.
+    /// </summary>
+    private GameMatch BalanceCavalryDistribution(GameMatch gameMatch)
+    {
+        int swapsDone = 0;
+        for (int iter = 0; iter < MaximumNumberOfSwaps; iter++)
+        {
+            int cavalryA = gameMatch.TeamA.Count(u => u.IsCavalry);
+            int cavalryB = gameMatch.TeamB.Count(u => u.IsCavalry);
+            int diff = cavalryA - cavalryB;
+
+            if (Math.Abs(diff) <= 1)
+            {
+                break;
+            }
+
+            bool moreOnTeamA = diff > 0;
+            List<WeightedCrpgUser> teamWithMoreCavalry = moreOnTeamA ? gameMatch.TeamA : gameMatch.TeamB;
+            List<WeightedCrpgUser> teamWithLessCavalry = moreOnTeamA ? gameMatch.TeamB : gameMatch.TeamA;
+
+            var cavalryCandidates = teamWithMoreCavalry.Where(u => u.IsCavalry).ToList();
+            var infantryCandidates = teamWithLessCavalry.Where(u => !u.IsCavalry).ToList();
+            if (cavalryCandidates.Count == 0 || infantryCandidates.Count == 0)
+            {
+                Debug.Print("Cannot balance cavalry further: no eligible cavalry/infantry pair to swap");
+                break;
+            }
+
+            float weightA = WeightHelpers.ComputeTeamWeight(gameMatch.TeamA);
+            float weightB = WeightHelpers.ComputeTeamWeight(gameMatch.TeamB);
+
+            WeightedCrpgUser? bestCavalry = null;
+            WeightedCrpgUser? bestInfantry = null;
+            float bestPostSwapDiff = float.MaxValue;
+
+            foreach (var cav in cavalryCandidates)
+            {
+                foreach (var inf in infantryCandidates)
+                {
+                    // delta added to the "more cavalry" team when we swap cav -> teamWithLessCavalry and inf -> teamWithMoreCavalry
+                    float deltaMoreCav = inf.Weight - cav.Weight;
+                    float newWeightA = moreOnTeamA ? weightA + deltaMoreCav : weightA - deltaMoreCav;
+                    float newWeightB = moreOnTeamA ? weightB - deltaMoreCav : weightB + deltaMoreCav;
+                    float postDiff = Math.Abs(newWeightA - newWeightB);
+
+                    if (postDiff < bestPostSwapDiff)
+                    {
+                        bestPostSwapDiff = postDiff;
+                        bestCavalry = cav;
+                        bestInfantry = inf;
+                    }
+                }
+            }
+
+            if (bestCavalry == null || bestInfantry == null)
+            {
+                break;
+            }
+
+            teamWithMoreCavalry.Remove(bestCavalry);
+            teamWithLessCavalry.Add(bestCavalry);
+            teamWithLessCavalry.Remove(bestInfantry);
+            teamWithMoreCavalry.Add(bestInfantry);
+            swapsDone++;
+
+            Debug.Print($"Cavalry balance swap #{swapsDone}: cavalry {bestCavalry.User.Name} (w={bestCavalry.Weight:F0}) <-> infantry {bestInfantry.User.Name} (w={bestInfantry.Weight:F0})");
+        }
+
+        if (swapsDone > 0)
+        {
+            Debug.Print($"Performed {swapsDone} cavalry-balancing swap(s) (clan balancing disabled)");
+        }
+
+        return gameMatch;
     }
 
     public GameMatch KkMakeTeamOfSimilarSizesWithoutSplittingClanGroups(GameMatch gameMatch)

@@ -33,6 +33,13 @@ internal static class CrpgServerConfiguration
     public static int RewardTick { get; private set; } = 60;
     public static bool TeamBalanceOnce { get; private set; }
     public static bool DisableClanBalancing { get; private set; }
+
+    /// <summary>
+    /// When clan balancing is disabled, force a full team reshuffle (like the warm-up draft) once the
+    /// same side has won this many consecutive rounds. Set to 0 to disable. Has no effect when clan
+    /// balancing is enabled.
+    /// </summary>
+    public static int BalanceReshuffleAfterStreak { get; private set; } = 3;
     public static bool FreeTeamSelect { get; private set; }
     public static bool FrozenBots { get; private set; } = false;
     public static int ControlledBotsCount { get; private set; } = 0;
@@ -217,6 +224,24 @@ internal static class CrpgServerConfiguration
 
         DisableClanBalancing = disableClanBalancing;
         Debug.Print($"Set disable clan balancing to {disableClanBalancing}");
+    }
+
+    [UsedImplicitly]
+    [ConsoleCommandMethod("crpg_balance_reshuffle_after_streak", "When clan balancing is disabled, force a full team reshuffle after the same side wins this many rounds in a row (0 = disabled).")]
+    private static void SetBalanceReshuffleAfterStreak(string? inputStr)
+    {
+        if (inputStr == null
+            || !int.TryParse(inputStr, out int streak)
+            || streak < 0
+            || streak > 50)
+        {
+            Debug.Print($"Invalid balance reshuffle streak: {inputStr} - must be an integer between 0 and 50");
+            Debug.Print($"Current value: crpg_balance_reshuffle_after_streak {BalanceReshuffleAfterStreak}");
+            return;
+        }
+
+        BalanceReshuffleAfterStreak = streak;
+        Debug.Print($"Set balance reshuffle after streak to {streak}");
     }
 
     [UsedImplicitly]

@@ -34,6 +34,12 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
 
     private readonly Dictionary<PlayerId, Team> _playerTeamsBeforeJoiningSpectator;
 
+    /// <summary>Side that won the previous round, used to detect winning streaks.</summary>
+    private BattleSideEnum _lastRoundWinnerSide = BattleSideEnum.None;
+
+    /// <summary>How many rounds <see cref="_lastRoundWinnerSide"/> has won in a row.</summary>
+    private int _consecutiveSameSideWins;
+
     public CrpgTeamSelectServerComponent(MultiplayerWarmupComponent warmupComponent, MultiplayerRoundController? roundController, MultiplayerGameType gameType)
     {
         _warmupComponent = warmupComponent;
@@ -140,18 +146,72 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
     private void OnRoundEnded()
     {
         LogRoundResult();
-        if (!_roundController!.IsMatchEnding)
+        if (_roundController!.IsMatchEnding)
         {
-            BalanceTeams(firstBalance: false);
+            return;
+        }
+
+        UpdateWinningStreak(_roundController.RoundWinner);
+        bool forceReshuffle = ShouldForceReshuffle();
+        BalanceTeams(firstBalance: false, forceReshuffle: forceReshuffle);
+        if (forceReshuffle)
+        {
+            // Avoid reshuffling on every subsequent round once the streak threshold has been crossed.
+            _consecutiveSameSideWins = 0;
+            _lastRoundWinnerSide = BattleSideEnum.None;
         }
     }
 
     private void OnWarmupEnded()
     {
+        _consecutiveSameSideWins = 0;
+        _lastRoundWinnerSide = BattleSideEnum.None;
         BalanceTeams(firstBalance: true);
     }
 
-    private void BalanceTeams(bool firstBalance)
+    /// <summary>Tracks how many consecutive rounds the same side has won. Ties are ignored.</summary>
+    private void UpdateWinningStreak(BattleSideEnum winner)
+    {
+        if (winner != BattleSideEnum.Attacker && winner != BattleSideEnum.Defender)
+        {
+            // Tie / undecided: keep the existing streak so a single draw doesn't paper over a stomp.
+            return;
+        }
+
+        if (winner == _lastRoundWinnerSide)
+        {
+            _consecutiveSameSideWins++;
+        }
+        else
+        {
+            _lastRoundWinnerSide = winner;
+            _consecutiveSameSideWins = 1;
+        }
+    }
+
+    private bool ShouldForceReshuffle()
+    {
+        if (!CrpgServerConfiguration.DisableClanBalancing)
+        {
+            return false;
+        }
+
+        int threshold = CrpgServerConfiguration.BalanceReshuffleAfterStreak;
+        if (threshold <= 0)
+        {
+            return false;
+        }
+
+        if (_consecutiveSameSideWins < threshold)
+        {
+            return false;
+        }
+
+        Debug.Print($"Forcing team reshuffle: {_lastRoundWinnerSide} won {_consecutiveSameSideWins} rounds in a row (threshold={threshold})");
+        return true;
+    }
+
+    private void BalanceTeams(bool firstBalance, bool forceReshuffle = false)
     {
         if (ShouldBypassCrpgBalancer())
         {
@@ -160,7 +220,8 @@ internal class CrpgTeamSelectServerComponent : MultiplayerTeamSelectComponent
 
         GameMatch gameMath = TeamsToGameMatch();
         GameMatch balancedGameMatch = _balancer.BannerBalancingWithEdgeCases(gameMath, firstBalance,
-            balanceOnce: CrpgServerConfiguration.TeamBalanceOnce);
+            balanceOnce: CrpgServerConfiguration.TeamBalanceOnce,
+            forceReshuffle: forceReshuffle);
 
         Dictionary<int, Team> usersToMove = ResolveTeamMoves(current: gameMath, target: balancedGameMatch);
 

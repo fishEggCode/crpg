@@ -2,6 +2,7 @@
 using Crpg.Module.Api.Models.Users;
 using Crpg.Module.Common.Network;
 using TaleWorlds.Core;
+using TaleWorlds.Library;
 using TaleWorlds.MountAndBlade;
 
 namespace Crpg.Module.Common;
@@ -44,7 +45,17 @@ internal class CrpgPeer : PeerComponent
         get => _rewardMultiplier;
         set
         {
-            _rewardMultiplier = value;
+            // The value is serialized into a network packet whose integer compression bounds are
+            // [RewardMultiplierMin, RewardMultiplierMax]. Writing anything outside this range makes the native
+            // serializer assert and crashes the whole server, so clamp before storing/sending.
+            int clamped = Math.Max(UpdateRewardMultiplier.RewardMultiplierMin, Math.Min(UpdateRewardMultiplier.RewardMultiplierMax, value));
+            if (clamped != value)
+            {
+                Debug.Print($"RewardMultiplier {value} out of range [{UpdateRewardMultiplier.RewardMultiplierMin}, {UpdateRewardMultiplier.RewardMultiplierMax}]; clamped to {clamped}",
+                    color: Debug.DebugColor.Yellow);
+            }
+
+            _rewardMultiplier = clamped;
             if (GameNetwork.IsServerOrRecorder)
             {
                 GameNetwork.BeginModuleEventAsServer(Peer);
